@@ -1,0 +1,17 @@
+# Drift detection configuration
+drift_threshold: 0.3          # share_of_drifted_columns to trigger alert
+drift_window_rows: 500        # number of recent predictions to evaluate
+min_rows_for_analysis: 50     # minimum rows before drift check runs
+
+# Evidently preset settings
+stattest: ks                  # kolmogorov-smirnov for numeric features
+stattest_threshold: 0.05      # p-value threshold for individual column drift
+
+# Report retention
+report_output_dir: monitoring/reports
+keep_last_n_reports: 48       # keep last 48 hourly reports (~2 days)
+
+# Alerting
+alert_on_dataset_drift: true
+alert_on_score_threshold: true
+retrain_dag_id: retrain_dag

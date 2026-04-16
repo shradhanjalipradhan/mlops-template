@@ -1,0 +1,38 @@
+groups:
+  - name: mlops_alerts
+    rules:
+      - alert: DriftThresholdExceeded
+        expr: drift_score_current > 0.3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Feature drift detected in churn model"
+          description: "Drift score {{ $value | printf \"%.3f\" }} exceeds threshold 0.3. Retraining will be triggered."
+
+      - alert: DatasetDriftDetected
+        expr: dataset_drift_detected == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dataset-level drift detected"
+          description: "Evidently reports overall dataset drift. Immediate retraining recommended."
+
+      - alert: HighInferenceLatency
+        expr: histogram_quantile(0.99, rate(inference_latency_seconds_bucket[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p99 inference latency above 500ms"
+          description: "p99 latency is {{ $value | printf \"%.3f\" }}s over the last 5 minutes."
+
+      - alert: InferenceServiceDown
+        expr: up{job="churn_api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Churn inference API is down"
+          description: "The FastAPI serving container is not reachable by Prometheus."

@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # ── Lint & type check ──────────────────────────────────────────────────────
+  lint:
+    name: Lint & type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install lint tools
+        run: pip install ruff mypy
+
+      - name: Ruff lint
+        run: ruff check src/ tests/ dags/ scripts/
+
+      - name: Mypy type check
+        run: mypy src/ --ignore-missing-imports --no-strict-optional
+
+  # ── Unit tests ─────────────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run unit tests
+        run: pytest tests/unit/ -v --tb=short --cov=src --cov-report=term-missing
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: .coverage
+
+  # ── Docker build check ─────────────────────────────────────────────────────
+  docker-build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build serving image
+        run: |
+          docker build -f infra/Dockerfile.serving \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            -t mlops-serving:ci .
+
+      - name: Build training image
+        run: |
+          docker build -f infra/Dockerfile.training \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            -t mlops-training:ci .
+
+  # ── Integration tests ──────────────────────────────────────────────────────
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests, docker-build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Start CI stack
+        run: |
+          docker compose -f infra/docker-compose.ci.yml up -d --build --wait
+        timeout-minutes: 5
+
+      - name: Seed test model in MLflow
+        run: |
+          pip install -e ".[dev]"
+          python scripts/generate_data.py
+          python scripts/seed_mlflow.py
+        env:
+          MLFLOW_TRACKING_URI: http://localhost:5000
+
+      - name: Run integration tests
+        run: |
+          pytest tests/integration/ -v --tb=short
+        env:
+          MLFLOW_TRACKING_URI: http://localhost:5000
+          API_BASE_URL: http://localhost:8000
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose -f infra/docker-compose.ci.yml logs --tail=50
+
+      - name: Tear down CI stack
+        if: always()
+        run: docker compose -f infra/docker-compose.ci.yml down -v

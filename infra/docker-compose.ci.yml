@@ -1,0 +1,52 @@
+version: "3.9"
+
+# Lightweight compose for CI integration tests.
+# Omits Grafana, Airflow, and MinIO to keep startup time under 60 seconds.
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: mlops
+      POSTGRES_PASSWORD: mlops
+      POSTGRES_DB: mlops
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "mlops"]
+      interval: 3s
+      retries: 15
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.14.0
+    command: >
+      mlflow server
+        --backend-store-uri postgresql://mlops:mlops@postgres/mlops
+        --default-artifact-root /tmp/mlflow-artifacts
+        --host 0.0.0.0 --port 5000
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 5s
+      retries: 15
+
+  serving:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.serving
+    ports:
+      - "8000:8000"
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_NAME: churn_model
+      MODEL_STAGE: Production
+      DB_PATH: /tmp/ci_predictions.db
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      retries: 20

@@ -1,0 +1,15 @@
+# Training pipeline configuration
+experiment_name: churn_prediction
+min_auc: 0.75
+cv_folds: 5
+cv_scoring: roc_auc
+test_size: 0.2
+val_size: 0.1
+random_seed: 42
+
+# Paths (relative to project root)
+raw_data_path: data/raw/churn.csv
+train_path: data/processed/train.parquet
+val_path: data/processed/val.parquet
+test_path: data/processed/test.parquet
+reference_path: data/reference/reference.parquet
